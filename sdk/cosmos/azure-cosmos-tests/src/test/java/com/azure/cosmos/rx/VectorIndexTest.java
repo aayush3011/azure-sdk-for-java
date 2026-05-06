@@ -293,6 +293,278 @@ public class VectorIndexTest extends TestSuiteBase {
         validateVectorIndexes(actualVectorIndexes, expectedVectorIndexes);
     }
 
+    @Test(groups = {"unit"}, timeOut = TIMEOUT)
+    public void shouldCreateMaxSimDistanceFunctionFromString() {
+        assertThat(CosmosVectorDistanceFunction.MAXSIM.toString()).isEqualTo("maxsim");
+
+        assertThat(CosmosVectorDistanceFunction.fromString("maxsim"))
+            .isEqualTo(CosmosVectorDistanceFunction.MAXSIM);
+
+        assertThat(CosmosVectorDistanceFunction.fromString("MaxSim"))
+            .isEqualTo(CosmosVectorDistanceFunction.MAXSIM);
+        assertThat(CosmosVectorDistanceFunction.fromString("MAXSIM"))
+            .isEqualTo(CosmosVectorDistanceFunction.MAXSIM);
+    }
+
+    @Test(groups = {"unit"}, timeOut = TIMEOUT)
+    public void shouldCreateMeanPoolQuantizerType() {
+        assertThat(QuantizerType.MEAN_POOL.toString()).isEqualTo("meanpool");
+    }
+
+    @Test(groups = {"unit"}, timeOut = TIMEOUT)
+    public void shouldValidateMaxSimVectorEmbeddingSerializationAndDeserialization() throws JsonProcessingException {
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.FLOAT32)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        String json = simpleObjectMapper.writeValueAsString(embedding);
+        assertThat(json).contains("\"distanceFunction\":\"maxsim\"");
+        assertThat(json).contains("\"dataType\":\"float32\"");
+        assertThat(json).contains("\"dimensions\":128");
+        assertThat(json).contains("\"path\":\"/multiVector\"");
+
+        CosmosVectorEmbedding deserialized = simpleObjectMapper.readValue(json, CosmosVectorEmbedding.class);
+        assertThat(deserialized.getDistanceFunction()).isEqualTo(CosmosVectorDistanceFunction.MAXSIM);
+        assertThat(deserialized.getDataType()).isEqualTo(CosmosVectorDataType.FLOAT32);
+        assertThat(deserialized.getEmbeddingDimensions()).isEqualTo(128);
+        assertThat(deserialized.getPath()).isEqualTo("/multiVector");
+    }
+
+    @Test(groups = {"unit"}, timeOut = TIMEOUT)
+    public void shouldValidateMeanPoolQuantizerVectorIndexSerializationAndDeserialization() throws JsonProcessingException {
+        CosmosVectorIndexSpec indexSpec = new CosmosVectorIndexSpec()
+            .setPath("/multiVector")
+            .setType(CosmosVectorIndexType.QUANTIZED_FLAT.toString())
+            .setQuantizerType(QuantizerType.MEAN_POOL);
+
+        String json = simpleObjectMapper.writeValueAsString(indexSpec);
+        assertThat(json).contains("\"quantizerType\":\"meanpool\"");
+        assertThat(json).contains("\"type\":\"quantizedFlat\"");
+
+        CosmosVectorIndexSpec deserialized = simpleObjectMapper.readValue(json, CosmosVectorIndexSpec.class);
+        assertThat(deserialized.getQuantizerType()).isEqualTo(QuantizerType.MEAN_POOL);
+        assertThat(deserialized.getType()).isEqualTo(CosmosVectorIndexType.QUANTIZED_FLAT.toString());
+    }
+
+    @Test(groups = {"unit"}, timeOut = TIMEOUT)
+    public void shouldValidateMaxSimEmbeddingPolicyWithMeanPoolIndex() throws JsonProcessingException {
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.FLOAT32)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        CosmosVectorEmbeddingPolicy policy = new CosmosVectorEmbeddingPolicy();
+        policy.setCosmosVectorEmbeddings(Arrays.asList(embedding));
+
+        CosmosVectorIndexSpec indexSpec = new CosmosVectorIndexSpec()
+            .setPath("/multiVector")
+            .setType(CosmosVectorIndexType.QUANTIZED_FLAT.toString())
+            .setQuantizerType(QuantizerType.MEAN_POOL);
+
+        String policyJson = simpleObjectMapper.writeValueAsString(policy);
+        assertThat(policyJson).contains("\"distanceFunction\":\"maxsim\"");
+
+        CosmosVectorEmbeddingPolicy deserializedPolicy =
+            simpleObjectMapper.readValue(policyJson, CosmosVectorEmbeddingPolicy.class);
+        assertThat(deserializedPolicy.getVectorEmbeddings()).hasSize(1);
+        assertThat(deserializedPolicy.getVectorEmbeddings().get(0).getDistanceFunction())
+            .isEqualTo(CosmosVectorDistanceFunction.MAXSIM);
+
+        String indexJson = simpleObjectMapper.writeValueAsString(indexSpec);
+        assertThat(indexJson).contains("\"quantizerType\":\"meanpool\"");
+    }
+
+    @Test(groups = {"emulator"}, timeOut = TIMEOUT * 10000)
+    public void shouldCreateContainerWithMaxSimVectorEmbeddingPolicy() {
+        PartitionKeyDefinition partitionKeyDef = new PartitionKeyDefinition()
+            .setPaths(Arrays.asList("/mypk"));
+
+        IndexingPolicy indexingPolicy = new IndexingPolicy()
+            .setIndexingMode(IndexingMode.CONSISTENT)
+            .setExcludedPaths(Collections.singletonList(new ExcludedPath("/*")))
+            .setIncludedPaths(ImmutableList.of(new IncludedPath("/name/?")))
+            .setVectorIndexes(Arrays.asList(
+                new CosmosVectorIndexSpec()
+                    .setPath("/multiVector")
+                    .setType(CosmosVectorIndexType.QUANTIZED_FLAT.toString())
+                    .setQuantizerType(QuantizerType.MEAN_POOL)
+            ));
+
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.FLOAT32)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        CosmosVectorEmbeddingPolicy policy = new CosmosVectorEmbeddingPolicy();
+        policy.setCosmosVectorEmbeddings(Arrays.asList(embedding));
+
+        CosmosContainerProperties containerDef = new CosmosContainerProperties(
+            UUID.randomUUID().toString(), partitionKeyDef)
+            .setIndexingPolicy(indexingPolicy)
+            .setVectorEmbeddingPolicy(policy);
+
+        database.createContainer(containerDef).block();
+        CosmosAsyncContainer container = database.getContainer(containerDef.getId());
+        CosmosContainerProperties props = container.read().block().getProperties();
+
+        assertThat(props.getVectorEmbeddingPolicy().getVectorEmbeddings()).hasSize(1);
+        assertThat(props.getVectorEmbeddingPolicy().getVectorEmbeddings().get(0)
+            .getDistanceFunction()).isEqualTo(CosmosVectorDistanceFunction.MAXSIM);
+        assertThat(props.getVectorEmbeddingPolicy().getVectorEmbeddings().get(0)
+            .getDataType()).isEqualTo(CosmosVectorDataType.FLOAT32);
+
+        assertThat(props.getIndexingPolicy().getVectorIndexes()).hasSize(1);
+        assertThat(props.getIndexingPolicy().getVectorIndexes().get(0)
+            .getQuantizerType()).isEqualTo(QuantizerType.MEAN_POOL);
+    }
+
+    @Test(groups = {"emulator"}, timeOut = TIMEOUT)
+    public void shouldFailMaxSimWithFlatIndex() {
+        PartitionKeyDefinition partitionKeyDef = new PartitionKeyDefinition()
+            .setPaths(Arrays.asList("/mypk"));
+
+        IndexingPolicy indexingPolicy = new IndexingPolicy()
+            .setIndexingMode(IndexingMode.CONSISTENT)
+            .setVectorIndexes(Arrays.asList(
+                new CosmosVectorIndexSpec()
+                    .setPath("/multiVector")
+                    .setType(CosmosVectorIndexType.FLAT.toString())
+            ));
+
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.FLOAT32)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        CosmosVectorEmbeddingPolicy policy = new CosmosVectorEmbeddingPolicy();
+        policy.setCosmosVectorEmbeddings(Arrays.asList(embedding));
+
+        CosmosContainerProperties containerDef = new CosmosContainerProperties(
+            UUID.randomUUID().toString(), partitionKeyDef)
+            .setIndexingPolicy(indexingPolicy)
+            .setVectorEmbeddingPolicy(policy);
+
+        try {
+            database.createContainer(containerDef).block();
+            fail("Should fail - MaxSim not supported for flat index type");
+        } catch (CosmosException ex) {
+            assertThat(ex.getStatusCode()).isEqualTo(400);
+        }
+    }
+
+    @Test(groups = {"emulator"}, timeOut = TIMEOUT)
+    public void shouldFailMaxSimWithDiskANNIndex() {
+        PartitionKeyDefinition partitionKeyDef = new PartitionKeyDefinition()
+            .setPaths(Arrays.asList("/mypk"));
+
+        IndexingPolicy indexingPolicy = new IndexingPolicy()
+            .setIndexingMode(IndexingMode.CONSISTENT)
+            .setVectorIndexes(Arrays.asList(
+                new CosmosVectorIndexSpec()
+                    .setPath("/multiVector")
+                    .setType(CosmosVectorIndexType.DISK_ANN.toString())
+                    .setQuantizerType(QuantizerType.MEAN_POOL)
+            ));
+
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.FLOAT32)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        CosmosVectorEmbeddingPolicy policy = new CosmosVectorEmbeddingPolicy();
+        policy.setCosmosVectorEmbeddings(Arrays.asList(embedding));
+
+        CosmosContainerProperties containerDef = new CosmosContainerProperties(
+            UUID.randomUUID().toString(), partitionKeyDef)
+            .setIndexingPolicy(indexingPolicy)
+            .setVectorEmbeddingPolicy(policy);
+
+        try {
+            database.createContainer(containerDef).block();
+            fail("Should fail - MaxSim not supported for DiskANN index type");
+        } catch (CosmosException ex) {
+            assertThat(ex.getStatusCode()).isEqualTo(400);
+        }
+    }
+
+    @Test(groups = {"emulator"}, timeOut = TIMEOUT)
+    public void shouldFailMaxSimWithInt8DataType() {
+        PartitionKeyDefinition partitionKeyDef = new PartitionKeyDefinition()
+            .setPaths(Arrays.asList("/mypk"));
+
+        IndexingPolicy indexingPolicy = new IndexingPolicy()
+            .setIndexingMode(IndexingMode.CONSISTENT)
+            .setVectorIndexes(Arrays.asList(
+                new CosmosVectorIndexSpec()
+                    .setPath("/multiVector")
+                    .setType(CosmosVectorIndexType.QUANTIZED_FLAT.toString())
+                    .setQuantizerType(QuantizerType.MEAN_POOL)
+            ));
+
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.INT8)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        CosmosVectorEmbeddingPolicy policy = new CosmosVectorEmbeddingPolicy();
+        policy.setCosmosVectorEmbeddings(Arrays.asList(embedding));
+
+        CosmosContainerProperties containerDef = new CosmosContainerProperties(
+            UUID.randomUUID().toString(), partitionKeyDef)
+            .setIndexingPolicy(indexingPolicy)
+            .setVectorEmbeddingPolicy(policy);
+
+        try {
+            database.createContainer(containerDef).block();
+            fail("Should fail - MaxSim only supports float32/float16");
+        } catch (CosmosException ex) {
+            assertThat(ex.getStatusCode()).isEqualTo(400);
+        }
+    }
+
+    @Test(groups = {"emulator"}, timeOut = TIMEOUT)
+    public void shouldFailMaxSimWithUInt8DataType() {
+        PartitionKeyDefinition partitionKeyDef = new PartitionKeyDefinition()
+            .setPaths(Arrays.asList("/mypk"));
+
+        IndexingPolicy indexingPolicy = new IndexingPolicy()
+            .setIndexingMode(IndexingMode.CONSISTENT)
+            .setVectorIndexes(Arrays.asList(
+                new CosmosVectorIndexSpec()
+                    .setPath("/multiVector")
+                    .setType(CosmosVectorIndexType.QUANTIZED_FLAT.toString())
+                    .setQuantizerType(QuantizerType.MEAN_POOL)
+            ));
+
+        CosmosVectorEmbedding embedding = new CosmosVectorEmbedding()
+            .setPath("/multiVector")
+            .setDataType(CosmosVectorDataType.UINT8)
+            .setEmbeddingDimensions(128)
+            .setDistanceFunction(CosmosVectorDistanceFunction.MAXSIM);
+
+        CosmosVectorEmbeddingPolicy policy = new CosmosVectorEmbeddingPolicy();
+        policy.setCosmosVectorEmbeddings(Arrays.asList(embedding));
+
+        CosmosContainerProperties containerDef = new CosmosContainerProperties(
+            UUID.randomUUID().toString(), partitionKeyDef)
+            .setIndexingPolicy(indexingPolicy)
+            .setVectorEmbeddingPolicy(policy);
+
+        try {
+            database.createContainer(containerDef).block();
+            fail("Should fail - MaxSim only supports float32/float16");
+        } catch (CosmosException ex) {
+            assertThat(ex.getStatusCode()).isEqualTo(400);
+        }
+    }
+
     private void validateCollectionProperties(CosmosContainerProperties collectionDefinition, CosmosContainerProperties collectionProperties) {
         assertThat(collectionProperties.getVectorEmbeddingPolicy()).isNotNull();
         assertThat(collectionProperties.getVectorEmbeddingPolicy().getVectorEmbeddings()).isNotNull();

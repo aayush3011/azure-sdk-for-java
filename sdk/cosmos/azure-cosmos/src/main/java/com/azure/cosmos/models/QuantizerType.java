@@ -17,7 +17,13 @@ public enum QuantizerType {
     /**
      * Represents a spherical quantizer type.
      */
-    SPHERICAL("spherical");
+    SPHERICAL("spherical"),
+
+    /**
+     * Represents a MeanPool quantizer type.
+     * Used for multi-vector (MaxSim) distance function with quantizedFlat index type.
+     */
+    MEAN_POOL("meanpool");
 
 
     QuantizerType(String overWireValue) {

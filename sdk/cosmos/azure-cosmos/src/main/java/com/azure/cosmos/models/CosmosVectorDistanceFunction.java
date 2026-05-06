@@ -24,7 +24,14 @@ public enum CosmosVectorDistanceFunction {
     /**
      * Represents the dot product distance function.
      */
-    DOT_PRODUCT("dotproduct");
+    DOT_PRODUCT("dotproduct"),
+
+    /**
+     * Represents the MaxSim distance function.
+     * Used for multi-vector embeddings (e.g., ColPali/ColQwen models).
+     * Only supported with quantizedFlat index type and float32/float16 data types.
+     */
+    MAXSIM("maxsim");
 
     private final String overWireValue;
 
